@@ -2,15 +2,21 @@ name: Zara Stock Check
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '0 */5 * * *'
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+concurrency:
+  group: zara-stock-check
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -29,13 +35,14 @@ jobs:
       - name: Install Xvfb (virtual display)
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
-      - name: Run stock check
+      - name: Run stock check (long-running loop)
         env:
           ZARA_BOT_TOKEN: ${{ secrets.ZARA_BOT_TOKEN }}
           ZARA_CHAT_ID: ${{ secrets.ZARA_CHAT_ID }}
         run: xvfb-run -a python zara_watch.py
 
       - name: Save results back to repo
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
