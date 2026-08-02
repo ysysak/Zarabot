@@ -39,7 +39,8 @@ jobs:
         env:
           ZARA_BOT_TOKEN: ${{ secrets.ZARA_BOT_TOKEN }}
           ZARA_CHAT_ID: ${{ secrets.ZARA_CHAT_ID }}
-        run: xvfb-run -a python zara_watch.py
+          PYTHONUNBUFFERED: "1"
+        run: xvfb-run -a python -u zara_watch.py
 
       - name: Save results back to repo
         if: always()
