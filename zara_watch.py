@@ -33,8 +33,8 @@ import requests
 from playwright.async_api import async_playwright
 
 # ---------- НАЛАШТУВАННЯ ----------
-BOT_TOKEN = os.environ.get("ZARA_BOT_TOKEN", "8841150749:AAHVATtFI2N6iioIRvo22KzZSroOJUknVbA")
-CHAT_ID = os.environ.get("ZARA_CHAT_ID", "347386314")
+BOT_TOKEN = os.environ.get("ZARA_BOT_TOKEN", "ВСТАВ_ТОКЕН_ТУТ")
+CHAT_ID = os.environ.get("ZARA_CHAT_ID", "ВСТАВ_CHAT_ID_ТУТ")
 
 CONCURRENCY = 5  # скільки товарів перевіряти одночасно
 
