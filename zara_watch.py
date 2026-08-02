@@ -66,7 +66,7 @@ def reset_log() -> None:
 
 
 def log(message: str) -> None:
-    print(message)
+    print(message, flush=True)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(message + "\n")
