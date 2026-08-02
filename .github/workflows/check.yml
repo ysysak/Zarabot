@@ -1,0 +1,44 @@
+name: Zara Stock Check
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Install Xvfb (virtual display)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run stock check
+        env:
+          ZARA_BOT_TOKEN: ${{ secrets.ZARA_BOT_TOKEN }}
+          ZARA_CHAT_ID: ${{ secrets.ZARA_CHAT_ID }}
+        run: xvfb-run -a python zara_watch.py
+
+      - name: Save results back to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json run_log.txt
+          git diff --staged --quiet || git commit -m "Update state"
+          git push
