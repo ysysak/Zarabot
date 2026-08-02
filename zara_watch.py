@@ -52,7 +52,7 @@ PRODUCTS_FILE = os.path.join(BASE_DIR, "products.json")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 LOG_FILE = os.path.join(BASE_DIR, "run_log.txt")
 
-MARKER_CAN_ADD = "Додати"
+MARKER_CAN_ADD = "покласти в кошик"
 MARKER_SOLD_OUT = "немає в наявності"
 
 
@@ -104,7 +104,7 @@ def safe_filename(text: str) -> str:
     return cleaned[:50] or "product"
 
 
-async def check_one_product(context, product, semaphore, save_debug=False):
+async def check_one_product(context, product, semaphore, verbose=False):
     url = product["url"]
     label = product.get("label", url)
 
@@ -129,7 +129,14 @@ async def check_one_product(context, product, semaphore, save_debug=False):
     sold_out = MARKER_SOLD_OUT in html_lower
     available = can_add and not sold_out
 
-    if len(html) < 10000 or save_debug:
+    if verbose:
+        contains_en_add = ("add to bag" in html_lower) or ("add to cart" in html_lower)
+        log(
+            f"    [діагностика] '{label}': розмір={len(html)}, "
+            f"укр.маркер={can_add}, англ.маркер={contains_en_add}"
+        )
+
+    if len(html) < 10000 or verbose:
         debug_path = os.path.join(BASE_DIR, f"debug_{safe_filename(label)}.html")
         try:
             with open(debug_path, "w", encoding="utf-8") as f:
@@ -140,12 +147,25 @@ async def check_one_product(context, product, semaphore, save_debug=False):
     return url, label, available
 
 
-async def run_one_pass(context, products, semaphore, pass_number):
+async def run_one_pass(context, products, semaphore, pass_number, just_recycled):
     tasks = [
-        check_one_product(context, product, semaphore, save_debug=(i == 0 and pass_number == 1))
+        check_one_product(context, product, semaphore, verbose=(i == 0 and just_recycled))
         for i, product in enumerate(products)
     ]
     return await asyncio.gather(*tasks)
+
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+# Скільки циклів перевірки робимо в одній "сесії" браузера, перш ніж
+# закрити її і відкрити нову (з чистими cookies). Це важливо: якщо
+# тримати ОДНУ сесію годинами й бити нею по сайту сотні разів поспіль,
+# захист сайту може почати ставитись до неї підозріліше з часом, навіть
+# якщо кожен окремий запит виглядає нормально.
+RECYCLE_EVERY_N_PASSES = int(os.environ.get("ZARA_RECYCLE_EVERY", 15))
 
 
 async def run_loop(products, state) -> None:
@@ -153,14 +173,20 @@ async def run_loop(products, state) -> None:
     semaphore = asyncio.Semaphore(CONCURRENCY)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
-            locale="uk-UA",
-        )
+        browser = None
+        context = None
+
+        async def open_fresh_session():
+            nonlocal browser, context
+            if context is not None:
+                await context.close()
+            if browser is not None:
+                await browser.close()
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context(user_agent=USER_AGENT, locale="uk-UA")
+            log("    [сесія] відкрито новий браузер з чистими cookies")
+
+        await open_fresh_session()
 
         pass_number = 0
         while True:
@@ -170,10 +196,14 @@ async def run_loop(products, state) -> None:
                 log(f"\n===== Ліміт часу сесії досягнуто ({elapsed/60:.0f} хв) — завершую =====")
                 break
 
+            just_recycled = pass_number == 1 or (pass_number - 1) % RECYCLE_EVERY_N_PASSES == 0
+            if pass_number > 1 and (pass_number - 1) % RECYCLE_EVERY_N_PASSES == 0:
+                await open_fresh_session()
+
             log(f"\n----- Цикл #{pass_number} ({datetime.now():%H:%M:%S}) -----")
 
             try:
-                results = await run_one_pass(context, products, semaphore, pass_number)
+                results = await run_one_pass(context, products, semaphore, pass_number, just_recycled)
             except Exception as e:
                 log(f"[!] Помилка циклу #{pass_number}: {e}")
                 await asyncio.sleep(CHECK_INTERVAL_SECONDS)
@@ -204,7 +234,10 @@ async def run_loop(products, state) -> None:
 
             await asyncio.sleep(CHECK_INTERVAL_SECONDS)
 
-        await browser.close()
+        if context is not None:
+            await context.close()
+        if browser is not None:
+            await browser.close()
 
 
 def main() -> None:
