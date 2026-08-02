@@ -39,6 +39,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add state.json run_log.txt
+          [ -f state.json ] && git add state.json
+          [ -f run_log.txt ] && git add run_log.txt
           git diff --staged --quiet || git commit -m "Update state"
           git push
